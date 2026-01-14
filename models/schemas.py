@@ -43,7 +43,7 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: Optional[int] = None
-    user: Dict[str, Any]
+    user: Optional[Dict[str, Any]] = None
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
@@ -58,6 +58,28 @@ class LogoutRequest(BaseModel):
     refresh_token: Optional[str] = None
 
 # ==================== User Schemas ====================
+
+from pydantic import field_validator
+from uuid import UUID
+
+class UserSchema(BaseModel):
+    id: int
+    uuid: str
+    email: str
+    username: str
+    full_name: Optional[str]
+    is_active: bool
+    is_verified: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('uuid', mode='before')
+    @classmethod
+    def uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
 
 class UserResponse(BaseModel):
     id: int

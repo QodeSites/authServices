@@ -214,6 +214,7 @@ async def refresh_token(
     """
     Request a new access token via refresh token.
     """
+    print("============================referesh token")
     jwt_service = JWTService(db)
     payload = jwt_service.verify_token(data.refresh_token, token_type="refresh")
     if not payload:
@@ -221,10 +222,11 @@ async def refresh_token(
 
     user_id = int(payload.get("sub"))
     access_token = jwt_service.create_access_token(user_id=user_id)
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=data.refresh_token,
-        token_type="bearer"
+        token_type="bearer",
     )
 
 
