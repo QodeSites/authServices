@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     DATABASE_ASYNC_URL: Optional[str] = None
 
     SECRET_KEY: str = secrets.token_urlsafe(32)
-    JWT_SECRET_KEY: str = SECRET_KEY  
-    ALGORITHM: str = "HS256"
+    JWT_PRIVATE_KEY: str 
+    JWT_PUBLIC_KEY: str  
+    ALGORITHM: str = "RS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 

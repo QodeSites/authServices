@@ -23,8 +23,7 @@ class UserRegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=8)
     full_name: Optional[str] = Field(None, max_length=100)
-    client_id: str
-    client_secret: str
+
 
     @validator('username')
     def username_alphanumeric(cls, v):
@@ -35,8 +34,6 @@ class UserRegisterRequest(BaseModel):
 class UserLoginRequest(BaseModel):
     email: EmailStr
     password: str
-    client_id: str
-    client_secret: str
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -51,8 +48,7 @@ class RefreshTokenRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str = Field(..., min_length=8)
-    client_id: str
-    client_secret: str
+
 
 class LogoutRequest(BaseModel):
     refresh_token: Optional[str] = None

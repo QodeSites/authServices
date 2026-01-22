@@ -23,7 +23,8 @@ from models.schemas import (
     TokenResponse,
     RefreshTokenRequest,
     LogoutRequest,
-    OAuthLoginRequest
+    OAuthLoginRequest,
+    UserResponse
 )
 from services.auth_service import AuthService
 from services.jwt_service import JWTService
@@ -41,7 +42,7 @@ router = APIRouter()
 
 
 @router.post(
-    "/register",
+    "/register/",
     response_model=ResponseModel,
     summary="Register a new user"
 )
@@ -73,7 +74,7 @@ async def register_user(
     )
 
 @router.post(
-    "/login",
+    "/login/",
     response_model=TokenResponse,
     summary="Authenticate and login a user"
 )
@@ -95,6 +96,7 @@ async def login_user(
     )
     if error:
         raise HTTPException(status_code=400, detail=error)
+        
     access_token = jwt_service.create_access_token(
         user_id=user.id,
         application_id=application.id,
@@ -105,14 +107,18 @@ async def login_user(
         ip_address=(request.client.host if request else None),
         user_agent=(request.headers.get("user-agent") if request else None)
     )
+        # Ensure the uuid is converted to string before passing to the schema
+    user_dict = {**user.__dict__}
+    user_dict["uuid"] = str(user.uuid)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        token_type="bearer"
+        token_type="bearer",
+        user=UserResponse.model_validate(user_dict).dict()
     )
 
 @router.post(
-    "/oauth-login",
+    "/oauth-login/",
     response_model=TokenResponse,
     summary="OAuth login or register a user"
 )
@@ -153,7 +159,7 @@ async def oauth_login(
     )
 
 @router.post(
-    "/change-password",
+    "/change-password/",
     response_model=ResponseModel,
     summary="Change password"
 )
@@ -179,7 +185,7 @@ async def change_password(
 
 
 @router.post(
-    "/unlock-account",
+    "/unlock-account/",
     response_model=ResponseModel,
     summary="Unlock user account"
 )
@@ -202,7 +208,7 @@ async def unlock_account(
 
 
 @router.post(
-    "/refresh-token",
+    "/refresh-token/",
     response_model=TokenResponse,
     summary="Refresh access token using refresh token"
 )
@@ -231,7 +237,7 @@ async def refresh_token(
 
 
 @router.post(
-    "/logout",
+    "/logout/",
     response_model=ResponseModel,
     summary="Revoke the given refresh token (logout)"
 )
@@ -251,7 +257,7 @@ async def logout(
 
 
 @router.post(
-    "/logout-all",
+    "/logout-all/",
     response_model=ResponseModel,
     summary="Log out from all sessions (revoke all active tokens)"
 )

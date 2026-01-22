@@ -14,7 +14,8 @@ class JWTService:
 
     def __init__(self, db: Session):
         self.db = db
-        self.secret_key = settings.JWT_SECRET_KEY
+        self.JWT_PRIVATE_KEY = settings.JWT_PRIVATE_KEY
+        self.JWT_PUBLIC_KEY = settings.JWT_PUBLIC_KEY
         self.algorithm = settings.ALGORITHM
         self.access_token_expire = settings.ACCESS_TOKEN_EXPIRE_MINUTES
         self.refresh_token_expire = settings.REFRESH_TOKEN_EXPIRE_DAYS
@@ -26,7 +27,7 @@ class JWTService:
         user_application_id: Optional[int] = None,
         additional_claims: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Create an access token"""
+        """Create an access token (RS256)"""
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=self.access_token_expire)
 
@@ -47,8 +48,8 @@ class JWTService:
         if additional_claims:
             payload.update(additional_claims)
 
-        token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
-        # PyJWT returns bytes in v1.x, str in v2.x: ensure string
+        # Use RS256, sign with PRIVATE KEY (PEM string expected)
+        token = jwt.encode(payload, self.JWT_PRIVATE_KEY, algorithm=self.algorithm)
         if isinstance(token, bytes):
             token = token.decode("utf-8")
         return token
@@ -59,7 +60,7 @@ class JWTService:
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None
     ) -> str:
-        """Create a refresh token and store session"""
+        """Create a refresh token (RS256) and store session"""
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=self.refresh_token_expire)
 
@@ -71,7 +72,8 @@ class JWTService:
             "exp": int(expires_at.timestamp()),
         }
 
-        token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
+        # Use RS256, sign with PRIVATE KEY
+        token = jwt.encode(payload, self.JWT_PRIVATE_KEY, algorithm=self.algorithm)
         if isinstance(token, bytes):
             token = token.decode("utf-8")
 
@@ -93,11 +95,12 @@ class JWTService:
         return token
 
     def verify_token(self, token: str, token_type: str = "access") -> Optional[Dict[str, Any]]:
-        """Verify and decode a token"""
+        """Verify and decode a token (RS256, public key verification)"""
         try:
+            # Verify with PUBLIC KEY
             payload = jwt.decode(
                 token,
-                self.secret_key,
+                self.JWT_PUBLIC_KEY,
                 algorithms=[self.algorithm]
             )
 
