@@ -107,7 +107,6 @@ async def login_user(
         ip_address=(request.client.host if request else None),
         user_agent=(request.headers.get("user-agent") if request else None)
     )
-        # Ensure the uuid is converted to string before passing to the schema
     user_dict = {**user.__dict__}
     user_dict["uuid"] = str(user.uuid)
     return TokenResponse(
