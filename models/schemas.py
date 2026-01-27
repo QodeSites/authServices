@@ -31,9 +31,23 @@ class UserRegisterRequest(BaseModel):
             raise ValueError('Username must be alphanumeric (underscores and hyphens allowed)')
         return v
 
+from pydantic import field_validator
+
 class UserLoginRequest(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
+    phone_code: Optional[str] = None
+    phone_number: Optional[str] = None
+    username: Optional[str] = None
     password: str
+
+    @field_validator("email", "phone_number", "username", mode="after")
+    @classmethod
+    def at_least_one_identifier(cls, v, values):
+        # Only run once after all fields are parsed (mode="after")
+        # Validate that at least one of email, phone_number, username is provided
+        if not (values.get("email") or values.get("phone_number") or values.get("username")):
+            raise ValueError("At least one of email, phone_number, or username must be provided.")
+        return v
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -81,9 +95,12 @@ class UserResponse(BaseModel):
     id: int
     uuid: str  # keep as str in schema for serialization
 
-    email: str
-    username: str
+    email: Optional[str]
+    username: Optional[str] 
     full_name: Optional[str]
+    phone_code: Optional[str]
+    phonenumber: Optional[str]
+    pancard:Optional[str]
     is_active: bool
     is_verified: bool
     created_at: datetime

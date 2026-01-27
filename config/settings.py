@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     SHARE_PRICE_SQLITE_DATA: Optional[str] = None
     INDICATOR_SQLITE_DATA: Optional[str] = None
 
+    TWO_FACTOR_API_KEY: Optional[str] = None
+    # Finsense/Finvu AA API 
+    AA_BASE_URL_UAT: Optional[str] = None
+    AA_BASE_URL_PROD: Optional[str] = None 
+    AA_USER_ID: Optional[str] = None
+    AA_PASSWORD: Optional[str] = None
+    AA_FIU_ID: Optional[str] = None
+    AA_CHANNEL_ID: Optional[str] = None
+    AA_ENVIRONMENT: Optional[str] = None
+
     class Config:
         env_file = ".env"
         extra = "ignore"

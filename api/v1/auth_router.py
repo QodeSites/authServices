@@ -12,7 +12,6 @@ from fastapi import (
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 
-# --- New Route: OAuth Login ---
 from db.session import get_db
 from models.schemas import (
     ResponseModel,
@@ -90,6 +89,9 @@ async def login_user(
     auth_service = AuthService(db)
     jwt_service = JWTService(db)
     user, user_application, error = auth_service.authenticate_user(
+        phone_code=data.phone_code,
+        phone_number=data.phone_number,
+        username=data.username,
         email=data.email,
         password=data.password,
         application_id=application.id
@@ -154,6 +156,74 @@ async def oauth_login(
         access_token=tokens["access_token"],
         refresh_token=tokens.get("refresh_token"),
         token_type="bearer",
+        user=UserResponse.model_validate(user_dict).dict()
+    )
+
+@router.post(
+    "/otp/send/",
+    response_model=ResponseModel,
+    summary="Send OTP for phone authentication"
+)
+async def send_otp(
+    phone_code : str = Body(..., embed=True),
+    phone_number: str = Body(..., embed=True),
+    application=Depends(verify_application),
+    db: Session = Depends(get_db)
+):
+    """
+    Send an OTP to the given phone number for authentication (login/register).
+    """
+    auth_service = AuthService(db)
+    user, user_application, error = auth_service.otp_auth_send(
+        phone_code=phone_code,
+        phonenumber=phone_number,
+        application_id=application.id
+    )
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return ResponseModel(
+        success=True,
+        data={
+            "user_id": user.id,
+            "user_application_id": user_application.id,
+        },
+        message="OTP sent successfully"
+    )
+
+@router.post(
+    "/otp/verify/",
+    response_model=TokenResponse,
+    summary="Verify OTP and login by phone"
+)
+async def verify_otp(
+    phone_code : str = Body(..., embed=True),
+    phone_number: str = Body(..., embed=True),
+    application=Depends(verify_application),
+    otp: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """
+    Verify the provided OTP for the phone number and application,
+    login/register user and return access/refresh tokens.
+    """
+    auth_service = AuthService(db)
+    user, user_application, tokens, error = auth_service.otp_auth_verify(
+        phone_code=phone_code,
+        phonenumber=phone_number,
+        application_id=application.id,
+        otp=otp
+    )
+    print(user,"============user")
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    # Prepare user response
+    from models.schemas import UserResponse
+    user_dict = {**user.__dict__}
+    user_dict["uuid"] = str(user.uuid)
+    return TokenResponse(
+        access_token=tokens["access_token"],
+        refresh_token=tokens.get("refresh_token"),
+        token_type=tokens.get("token_type", "bearer"),
         user=UserResponse.model_validate(user_dict).dict()
     )
 
@@ -303,31 +373,4 @@ async def get_sessions(
         data=sessions,
         message="Fetched active user sessions"
     )
-
-
-# @router.post(
-#     "/service-token",
-#     response_model=TokenResponse,
-#     summary="Create token for service-to-service authentication"
-# )
-# async def create_service_token(
-#     service_account_id: int = Body(...),
-#     service_name: str = Body(...),
-#     db: Session = Depends(get_db),
-#     credentials: dict = Depends(verify_service_token)
-# ):
-#     """
-#     Issue a service-to-service authentication token.
-#     """
-#     jwt_service = JWTService(db)
-#     token = jwt_service.create_service_token(
-#         service_account_id=service_account_id,
-#         service_name=service_name
-#     )
-#     return TokenResponse(
-#         access_token=token,
-#         refresh_token=None,
-#         token_type="service"
-#     )
-
 

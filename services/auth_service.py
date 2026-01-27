@@ -9,6 +9,7 @@ from models.models import (
 )
 from services.password_service import PasswordService
 from services.jwt_service import JWTService
+from services.otp_service import OtpService
 
 class AuthService:
     """Handles authentication logic and user verification"""
@@ -17,6 +18,180 @@ class AuthService:
         self.db = db
         self.password_service = PasswordService()
         self.jwt_service = JWTService(db)
+    
+    def otp_auth_send(
+        self,
+        phone_code: str,
+        phonenumber: str,
+        application_id: int,
+    ) -> Tuple[Optional[User], Optional[UserApplication], Optional[str]]:
+        """
+        Sends an OTP to the given phone number for authentication.
+        If the phone number (User) does not exist, creates a new user entry.
+        Returns (User, UserApplication, error_message)
+        """
+        try:
+            # 1. Check if application exists and active
+            application = self.db.query(Application).filter(
+                Application.id == application_id,
+                Application.is_active == True
+            ).first()
+            if not application:
+                return None, None, "Application not found or inactive"
+            print(phonenumber,phone_code,application_id)
+            print(application.id,"======got apploicaton id")
+            
+            # 2. Try to find a user with this phone number
+            user = self.db.query(User).filter(
+                User.phonenumber == phonenumber
+            ).first()
+            print(user,"===============user")
+
+            is_new_user = False
+
+            if not user:
+                # Create new user with given phone number
+                user = User(
+                    phone_code=phone_code,
+                    phonenumber=phonenumber,
+                    is_active=True,
+                    is_verified=False,
+                )
+                self.db.add(user)
+                self.db.flush()
+                print("=====in")
+                is_new_user = True
+            user_check = self.db.query(User).filter(
+                User.phonenumber == phonenumber
+            ).first()
+            print(user_check,"==============")
+            # 3. See if user is registered for the application
+            user_application = self.db.query(UserApplication).filter(
+                UserApplication.user_id == user.id,
+                UserApplication.application_id == application_id
+            ).first()
+
+            if not user_application:
+                user_application = UserApplication(
+                    user_id=user.id,
+                    application_id=application_id
+                )
+                self.db.add(user_application)
+                self.db.flush()
+
+            # 4. Find or create AuthMethod for OTP (phone)
+            auth_method = self.db.query(AuthMethod).filter(
+                AuthMethod.user_application_id == user_application.id,
+                AuthMethod.provider == AuthProviderEnum.LOCAL
+            ).first()
+
+            if not auth_method:
+                auth_method = AuthMethod(
+                    user_application_id=user_application.id,
+                    provider=AuthProviderEnum.LOCAL,
+                    provider_user_id=str(phonenumber),
+                    is_primary=is_new_user
+                )
+                self.db.add(auth_method)
+                self.db.flush()
+
+            # 5. Call otp_service to generate OTP and send OTP
+            otp_obj = OtpService(phone_code, phonenumber)
+            res = otp_obj.send_otp()
+            # Handle both dict and object responses, fallback to dict keys
+            success = getattr(res, "success", res.get("success") if isinstance(res, dict) else None)
+            message = getattr(res, "message", res.get("message") if isinstance(res, dict) else None)
+            if not success:
+                self.db.rollback()
+                return None, None, message
+
+            self.db.commit()
+            return user, user_application, None
+
+        except Exception as e:
+            self.db.rollback()
+            return None, None, f"Failed to send OTP: {str(e)}"
+
+
+    def otp_auth_verify(
+        self,
+        phone_code:str,
+        phonenumber: str,
+        application_id: int,
+        otp: str
+    ) -> Tuple[Optional[User], Optional[UserApplication], Optional[Dict[str, str]], Optional[str]]:
+        """
+        Verifies the OTP for the provided phone number and application.
+        If valid, returns (User, UserApplication, tokens_dict, error_message)
+        """
+        try:
+            print(phone_code,phonenumber,otp,"=======")
+            # 1. Check application exists
+            application = self.db.query(Application).filter(
+                Application.id == application_id,
+                Application.is_active == True
+            ).first()
+            if not application:
+                return None, None, None, "Application not found or inactive"
+
+            # 2. Get user by phone number
+            user = self.db.query(User).filter(
+                User.phone_code == phone_code,
+                User.phonenumber == phonenumber,
+                User.is_active == True
+            ).first()
+            print(user,"=========user")
+            if not user:
+                return None, None, None, "User/phone number not found"
+
+            # 3. Get user application
+            user_application = self.db.query(UserApplication).filter(
+                UserApplication.user_id == user.id,
+                UserApplication.application_id == application_id
+            ).first()
+            if not user_application:
+                return None, None, None, "User is not registered to application"
+
+            # 4. Verify OTP via otp_service
+            otp_obj = OtpService(phone_code,phonenumber)
+            otp_valid = otp_obj.verify_otp(
+                otp=otp
+            )
+            print(otp_valid)
+            success = getattr(otp_valid, "success", otp_valid.get("success") if isinstance(otp_valid, dict) else None)
+            message = getattr(otp_valid, "message", otp_valid.get("message") if isinstance(otp_valid, dict) else None)
+            if not success:
+                return None, None, None, f"OTP verification failed: {message}"
+
+            # 5. Mark user verified for phone number auth
+            user.is_verified = True
+            self.db.commit()
+            self.db.refresh(user)
+            self.db.refresh(user_application)
+
+            # 6. Issue access and refresh tokens
+            access_token = self.jwt_service.create_access_token(
+                user_id=user.id,
+                application_id=user_application.application_id,
+                user_application_id=user_application.id
+            )
+            refresh_token = self.jwt_service.create_refresh_token(
+                user_id=user.id
+            )
+            tokens = {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer"
+            }
+            print(user,"=====inuser")
+
+            return user, user_application, tokens, None
+
+        except Exception as e:
+            self.db.rollback()
+            return None, None, None, f"OTP login failed: {str(e)}"
+
+
 
     def auth_login(
         self,

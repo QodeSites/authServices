@@ -36,12 +36,17 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     uuid = Column(PG_UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
 
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    username = Column(String(50), unique=True, index=True, nullable=False)
+    email = Column(String(255), unique=False, index=True, nullable=True)
+    username = Column(String(50), unique=True, index=True, nullable=True)
     full_name = Column(String(100))
+
+    # Added fields for phone code and phonenumber
+    phone_code = Column(String(10), nullable=True)  # Store phone_code as string
+    phonenumber = Column(String(20), unique=False, index=True, nullable=True)  # Store phonenumber as string
 
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
+    pancard = Column(String(50), unique=True, index=True, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
