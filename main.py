@@ -57,10 +57,12 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Process-Time"] = str(process_time)
     return response
 
-from api.v1 import auth_router
+from api.v1 import auth_router , profile_router
 
 app.include_router(auth_router.router,
     prefix=f"{settings.API_V1_PREFIX}/auth",tags=["auth"])  
+app.include_router(profile_router.router,
+    prefix=f"{settings.API_V1_PREFIX}/profile",tags=["profile"])  
 
 # Health check endpoint
 @app.get("/health")

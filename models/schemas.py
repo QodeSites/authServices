@@ -78,9 +78,34 @@ class UserSchema(BaseModel):
     email: str
     username: str
     full_name: Optional[str]
+    phone_code: Optional[str]
+    phonenumber: Optional[str]
+    pancard: Optional[str]
     is_active: bool
     is_verified: bool
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('uuid', mode='before')
+    @classmethod
+    def uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
+
+class UserUpdateRequest(BaseModel):
+    id: Optional[int] = None
+    uuid: Optional[str] = None
+    email: Optional[str] = None
+    username: Optional[str] = None
+    full_name: Optional[str] = None
+    phone_code: Optional[str] = None
+    phonenumber: Optional[str] = None
+    pancard: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_verified: Optional[bool] = None
+    created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
