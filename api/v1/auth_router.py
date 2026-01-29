@@ -344,7 +344,7 @@ async def logout_all(
 
 
 @router.get(
-    "/me",
+    "/me/",
     response_model=ResponseModel,
     summary="Get current user info"
 )

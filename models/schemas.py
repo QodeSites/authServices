@@ -74,9 +74,9 @@ from uuid import UUID
 
 class UserSchema(BaseModel):
     id: int
-    uuid: str
-    email: str
-    username: str
+    uuid: Optional[str]
+    email: Optional[str]
+    username: Optional[str]
     full_name: Optional[str]
     phone_code: Optional[str]
     phonenumber: Optional[str]
