@@ -86,15 +86,17 @@ async def login_user(
     """
     Authenticate user with email and password.
     """
+    if not data.email:
+        raise HTTPException(
+            status_code=400,
+            detail="Email is required for password login. Use OTP or OAuth for other identifiers.",
+        )
     auth_service = AuthService(db)
     jwt_service = JWTService(db)
     user, user_application, error = auth_service.authenticate_user(
-        phone_code=data.phone_code,
-        phone_number=data.phone_number,
-        username=data.username,
         email=data.email,
         password=data.password,
-        application_id=application.id
+        application_id=application.id,
     )
     if error:
         raise HTTPException(status_code=400, detail=error)
