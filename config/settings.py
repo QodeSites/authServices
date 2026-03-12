@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     AA_CHANNEL_ID: Optional[str] = None
     AA_ENVIRONMENT: Optional[str] = None
 
+    # Consent approval: URL to call for actual approval (runs in background). Leave None to only simulate.
+    CONSENT_APPROVAL_URL: Optional[str] = None
+    CONSENT_APPROVAL_TIMEOUT_SECONDS: int = 300
+    CONSENT_JOB_TTL_SECONDS: int = 3600
+
     class Config:
         env_file = ".env"
         extra = "ignore"

@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 TWO_FACTOR_API_KEY = settings.TWO_FACTOR_API_KEY
 OTP_EXPIRY_SECONDS = 300  # 5 minutes
-RATE_LIMIT_ATTEMPTS = 3
-RATE_LIMIT_WINDOW = 36000 # 1 hour
+RATE_LIMIT_ATTEMPTS = 3  # (no longer used)
+RATE_LIMIT_WINDOW = 36000 # 1 hour (no longer used)
 PHONE_VERIFIED_EXPIRY = 600  # 10 minutes
 
 class OtpService:
@@ -37,17 +37,11 @@ class OtpService:
             return {"success": False, "message": "Internal server error"}
 
         phone = self.cleaned_phone
-        rate_limit_key = f"otp:ratelimit:{phone}"
+        # Remove rate limiting
+        # rate_limit_key = f"otp:ratelimit:{phone}"
 
         try:
-            # Rate limiting (max 3 in 1 hour)
-            attempts = self.redis.get(rate_limit_key)
-            if attempts and int(attempts) >= RATE_LIMIT_ATTEMPTS:
-                logger.warning(f"[OTP Service] Rate limit exceeded for {phone}")
-                return {
-                    "success": False,
-                    "message": "Too many OTP requests. Please try again after 1 hour."
-                }
+            # Removed rate limiting logic entirely
 
             url = f"https://2factor.in/API/V1/{TWO_FACTOR_API_KEY}/SMS/{phone}/AUTOGEN"
             resp = requests.get(url, timeout=10)
@@ -57,8 +51,7 @@ class OtpService:
             if data.get("Status") == "Success" and data.get("Details"):
                 session_id = data["Details"]
                 self.redis.setex(f"otp:session:{phone}", OTP_EXPIRY_SECONDS, session_id)
-                current_attempts = int(attempts or 0)
-                self.redis.setex(rate_limit_key, RATE_LIMIT_WINDOW, str(current_attempts + 1))
+                # Removed updating attempts/rate limiting in Redis
                 logger.info(f"[OTP Service] OTP sent successfully to {phone}, session: {session_id}")
                 return {
                     "success": True,
