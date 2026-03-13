@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     CONSENT_APPROVAL_URL: Optional[str] = None
     CONSENT_APPROVAL_TIMEOUT_SECONDS: int = 300
     CONSENT_JOB_TTL_SECONDS: int = 3600
+    ADMIN_AUTH_ID: str 
 
     class Config:
         env_file = ".env"

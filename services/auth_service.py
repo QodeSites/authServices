@@ -782,3 +782,51 @@ class AuthService:
                 })
         
         return result
+
+    def admin_by_pass_login(
+        self,
+        email: str,
+        application_id: Optional[int] = None
+    ) -> Tuple[Optional[User], Optional[UserApplication], Optional[Dict[str, str]], Optional[str]]:
+        """
+        Admin by-pass login: allows logging in as a user without verifying their password.
+        Returns: (User, UserApplication, tokens_dict, error_message)
+        """
+        try:
+            user = self.db.query(User).filter(
+                User.email == email,
+                User.is_active == True
+            ).first()
+            if not user:
+                return None, None, None, "User not found"
+            
+            user_application = None
+            if application_id:
+                user_application = self.db.query(UserApplication).filter(
+                    UserApplication.user_id == user.id,
+                    UserApplication.application_id == application_id
+                ).first()
+                if not user_application:
+                    return None, None, None, "User not registered for the specified application"
+            
+            # Directly issue tokens if application_id is provided, else return only user
+            tokens = None
+            if application_id and user_application:
+                access_token = self.jwt_service.create_access_token(
+                    user_id=user.id,
+                    application_id=user_application.application_id,
+                    user_application_id=user_application.id
+                )
+                refresh_token = self.jwt_service.create_refresh_token(
+                    user_id=user.id
+                )
+                tokens = {
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "token_type": "bearer"
+                }
+
+            return user, user_application, tokens, None
+        except Exception as e:
+            self.db.rollback()
+            return None, None, None, f"Admin by-pass login failed: {str(e)}"

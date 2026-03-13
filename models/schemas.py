@@ -46,6 +46,18 @@ class UserLoginRequest(BaseModel):
             raise ValueError("At least one of email, phone_number, or username must be provided.")
         return self
 
+class AdminUserLoginRequest(BaseModel):
+    email: Optional[EmailStr] = None
+    phone_code: Optional[str] = None
+    phone_number: Optional[str] = None
+    username: Optional[str] = None
+
+    @model_validator(mode="after")
+    def at_least_one_identifier(self):
+        if not (self.email or self.phone_number or self.username):
+            raise ValueError("At least one of email, phone_number, or username must be provided.")
+        return self
+        
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

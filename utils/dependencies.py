@@ -7,7 +7,7 @@ from db.session import get_db
 from services.jwt_service import JWTService
 from services.auth_service import AuthService
 from models.models import User, Application
-
+from config.settings import settings
 security = HTTPBearer()
 
 
@@ -63,6 +63,16 @@ async def get_current_user_optional(
     except HTTPException:
         return None
 
+async def verify_admin(
+    x_admin_auth_id: Optional[str] = Header(None, alias="x-admin-auth-id"),
+) -> str:
+    """Dependency to verify admin credentials from headers."""
+    if not x_admin_auth_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-Admin-Auth-Id header")
+    if x_admin_auth_id != settings.ADMIN_AUTH_ID:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid X-Admin-Auth-Id header")
+    return True
+    
 async def verify_application(
     x_client_id: Optional[str] = Header(None, alias="x-client-id"),
     db: Session = Depends(get_db)
