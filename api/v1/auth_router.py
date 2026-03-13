@@ -18,6 +18,7 @@ from models.schemas import (
     UserRegisterRequest,
     UserLoginRequest,
     ChangePasswordRequest,
+    SetPasswordRequest,
     UnlockAccountRequest,
     TokenResponse,
     RefreshTokenRequest,
@@ -241,7 +242,7 @@ async def change_password(
     application=Depends(verify_application)
 ):
     """
-    Change user password.
+    Change user password (requires current password).
     """
     auth_service = AuthService(db)
     success, error = auth_service.change_password(
@@ -253,6 +254,31 @@ async def change_password(
     if not success:
         raise HTTPException(status_code=400, detail=error)
     return ResponseModel(success=True, data={}, message="Password changed successfully")
+
+
+@router.post(
+    "/set-password/",
+    response_model=ResponseModel,
+    summary="Set or reset password (first-time setup or OTP/token-verified reset)"
+)
+async def set_password(
+    data: SetPasswordRequest = Body(...),
+    db: Session = Depends(get_db),
+    application=Depends(verify_application)
+):
+    """
+    Set or reset password. Used after OTP or token verification.
+    Creates user and credential in auth service if they do not exist.
+    """
+    auth_service = AuthService(db)
+    success, error = auth_service.set_password(
+        email=data.email.strip().lower(),
+        new_password=data.new_password,
+        application_id=application.id
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=error)
+    return ResponseModel(success=True, data={}, message="Password set successfully")
 
 
 @router.post(

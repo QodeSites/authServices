@@ -61,6 +61,12 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8)
 
 
+class SetPasswordRequest(BaseModel):
+    """Set or reset password (first-time setup or OTP/token-verified reset)."""
+    email: str
+    new_password: str = Field(..., min_length=8)
+
+
 class LogoutRequest(BaseModel):
     refresh_token: Optional[str] = None
 

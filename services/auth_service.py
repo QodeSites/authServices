@@ -608,7 +608,98 @@ class AuthService:
         except Exception as e:
             self.db.rollback()
             return False, f"Password change failed: {str(e)}"
-    
+
+    def set_password(
+        self,
+        email: str,
+        new_password: str,
+        application_id: int
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Set or reset password for a user (e.g. first-time setup or OTP/token-verified reset).
+        Creates user and credential in auth service if they do not exist.
+        Returns: (success, error_message)
+        """
+        try:
+            is_valid, error_msg = self.password_service.validate_password_strength(new_password)
+            if not is_valid:
+                return False, error_msg
+
+            application = self.db.query(Application).filter(
+                Application.id == application_id,
+                Application.is_active == True
+            ).first()
+            if not application:
+                return False, "Application not found or inactive"
+
+            user = self.db.query(User).filter(
+                User.email == email,
+                User.is_active == True
+            ).first()
+
+            if not user:
+                base_username = (email.split("@")[0] or "user").replace(".", "_")[:50]
+                existing = self.db.query(User).filter(User.username == base_username).first()
+                username = f"{base_username}_{application_id}" if existing else base_username
+                user = User(
+                    email=email,
+                    username=username,
+                    is_active=True,
+                    is_verified=True,
+                )
+                self.db.add(user)
+                self.db.flush()
+
+            user_application = self.db.query(UserApplication).filter(
+                UserApplication.user_id == user.id,
+                UserApplication.application_id == application_id
+            ).first()
+            if not user_application:
+                user_application = UserApplication(
+                    user_id=user.id,
+                    application_id=application_id
+                )
+                self.db.add(user_application)
+                self.db.flush()
+
+            auth_method = self.db.query(AuthMethod).filter(
+                AuthMethod.user_application_id == user_application.id,
+                AuthMethod.provider == AuthProviderEnum.LOCAL
+            ).first()
+            if not auth_method:
+                auth_method = AuthMethod(
+                    user_application_id=user_application.id,
+                    provider=AuthProviderEnum.LOCAL,
+                    is_primary=True,
+                )
+                self.db.add(auth_method)
+                self.db.flush()
+
+            password_hash, algo = self.password_service.hash_password(new_password)
+            credential = self.db.query(UserCredential).filter(
+                UserCredential.auth_method_id == auth_method.id
+            ).first()
+            if credential:
+                credential.password_hash = password_hash
+                credential.password_algo = algo
+                credential.failed_attempts = 0
+                credential.is_locked = False
+                credential.updated_at = datetime.now(timezone.utc)
+            else:
+                credential = UserCredential(
+                    auth_method_id=auth_method.id,
+                    password_hash=password_hash,
+                    password_algo=algo,
+                )
+                self.db.add(credential)
+
+            self.db.commit()
+            return True, None
+
+        except Exception as e:
+            self.db.rollback()
+            return False, f"Set password failed: {str(e)}"
+
     def unlock_user_account(
         self,
         user_id: int,
