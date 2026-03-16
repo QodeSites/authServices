@@ -21,6 +21,7 @@ class AuthProviderEnum(str, Enum):
     GOOGLE = "google"
     GITHUB = "github"
     FACEBOOK = "facebook"
+    MICROSOFT = "microsoft"
 
 
 # helpers
