@@ -15,6 +15,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def lifespan(app: FastAPI):
+    # Validate required environment variables at startup. We name each
+    # missing variable explicitly so operators know exactly which secret
+    # to set in their .env / secret manager.
+    required_env_vars = [
+        "DATABASE_URL",
+        "JWT_PRIVATE_KEY",
+        "JWT_PUBLIC_KEY",
+        "TWO_FACTOR_API_KEY",
+        "ADMIN_AUTH_ID",
+    ]
+    missing_vars = [var for var in required_env_vars if not getattr(settings, var, None)]
+
+    # Symmetric JWT_SECRET (or legacy SECRET_KEY) is also required and must
+    # come from the environment — never the previous random default.
+    if not settings.JWT_SECRET and not settings.SECRET_KEY:
+        missing_vars.append("JWT_SECRET (or SECRET_KEY)")
+
+    if missing_vars:
+        error_msg = (
+            "Auth service startup aborted — missing required environment "
+            f"variables: {', '.join(missing_vars)}. Set them in the service "
+            ".env or secret manager and restart."
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
     # Call redis startup
     startup()
     # Start scheduler here to ensure it starts when the app comes up
@@ -32,10 +58,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+# Add CORS middleware. Origins are pulled from settings.CORS_ORIGINS so the
+# allowlist is configured per-environment via .env (CORS_ORIGINS=...).
+# Previously this was a hardcoded list that overrode the env-driven config.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,7 +73,7 @@ app.add_middleware(
 if not settings.DEBUG:
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["*"]
+        allowed_hosts=["localhost", "127.0.0.1", "*.qodeinvest.com"]
     )
 
 # Add request timing middleware

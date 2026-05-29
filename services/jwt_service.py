@@ -1,12 +1,15 @@
 import jwt  # PyJWT
 import uuid
 import hashlib
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Any, List
 from sqlalchemy.orm import Session
 
 from config.settings import settings
 from models.models import User, JWTBlacklist, UserSession
+
+logger = logging.getLogger(__name__)
 
 
 class JWTService:
@@ -37,6 +40,8 @@ class JWTService:
             "jti": str(uuid.uuid4()),
             "iat": int(now.timestamp()),
             "exp": int(expires_at.timestamp()),
+            "iss": "auth.qodeinvest.com",
+            "aud": "qodeinvest.com",
         }
 
         if application_id:
@@ -70,6 +75,8 @@ class JWTService:
             "jti": str(uuid.uuid4()),
             "iat": int(now.timestamp()),
             "exp": int(expires_at.timestamp()),
+            "iss": "auth.qodeinvest.com",
+            "aud": "qodeinvest.com",
         }
 
         # Use RS256, sign with PRIVATE KEY
@@ -101,7 +108,8 @@ class JWTService:
             payload = jwt.decode(
                 token,
                 self.JWT_PUBLIC_KEY,
-                algorithms=[self.algorithm]
+                algorithms=[self.algorithm],
+                audience="qodeinvest.com"
             )
 
             # Verify token type
@@ -137,7 +145,8 @@ class JWTService:
             return None
         except jwt.InvalidTokenError:
             return None
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error verifying token: {e}", exc_info=True)
             return None
 
     def revoke_access_token(self, token: str, user_id: Optional[int] = None) -> bool:
@@ -145,7 +154,7 @@ class JWTService:
         try:
             payload = jwt.decode(
                 token,
-                self.secret_key,
+                self.JWT_PUBLIC_KEY,
                 algorithms=[self.algorithm],
                 options={"verify_exp": False}
             )
@@ -169,7 +178,8 @@ class JWTService:
 
             return True
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error revoking access token: {e}", exc_info=True)
             self.db.rollback()
             return False
 
@@ -190,7 +200,8 @@ class JWTService:
                 return True
 
             return False
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error revoking refresh token: {e}", exc_info=True)
             self.db.rollback()
             return False
 
@@ -211,7 +222,8 @@ class JWTService:
 
             self.db.commit()
             return count
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error revoking all user sessions: {e}", exc_info=True)
             self.db.rollback()
             return 0
 
@@ -277,6 +289,7 @@ class JWTService:
                 "blacklist_deleted": blacklist_deleted,
                 "sessions_deleted": sessions_deleted
             }
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error cleaning up expired tokens: {e}", exc_info=True)
             self.db.rollback()
             return {"blacklist_deleted": 0, "sessions_deleted": 0}

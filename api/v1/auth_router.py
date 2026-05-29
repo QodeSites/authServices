@@ -11,8 +11,12 @@ from fastapi import (
 )
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
+import logging
+import re
 
 from db.session import get_db
+
+logger = logging.getLogger(__name__)
 from models.schemas import (
     ResponseModel,
     UserRegisterRequest,
@@ -135,7 +139,6 @@ async def oauth_login(
     """
     OAuth login or sign up a user.
     """
-    print(application,"===============================application")
     auth_service = AuthService(db)
     user, user_application, tokens, error = auth_service.auth_login(
         provider=data.provider,
@@ -176,6 +179,17 @@ async def send_otp(
     """
     Send an OTP to the given phone number for authentication (login/register).
     """
+    # Validate phone_number: must be a 10-digit Indian mobile number starting with 6-9.
+    # Defence in depth — matches the FE validator (lib/validation.ts:validatePhone).
+    if not re.match(r"^\d{10}$", phone_number):
+        raise HTTPException(status_code=422, detail="Invalid phone number. Must be 10 digits.")
+    if not re.match(r"^[6-9]\d{9}$", phone_number):
+        raise HTTPException(status_code=422, detail="Mobile number must start with 6-9")
+
+    # Validate phone_code: must be 1-4 digits with optional leading +
+    if not re.match(r"^\+?\d{1,4}$", phone_code):
+        raise HTTPException(status_code=422, detail="Invalid phone code. Must be 1-4 digits with optional leading +.")
+
     auth_service = AuthService(db)
     user, user_application, error = auth_service.otp_auth_send(
         phone_code=phone_code,
@@ -209,6 +223,17 @@ async def verify_otp(
     Verify the provided OTP for the phone number and application,
     login/register user and return access/refresh tokens.
     """
+    # Validate phone_number: must be a 10-digit Indian mobile number starting with 6-9.
+    # Defence in depth — matches the FE validator (lib/validation.ts:validatePhone).
+    if not re.match(r"^\d{10}$", phone_number):
+        raise HTTPException(status_code=422, detail="Invalid phone number. Must be 10 digits.")
+    if not re.match(r"^[6-9]\d{9}$", phone_number):
+        raise HTTPException(status_code=422, detail="Mobile number must start with 6-9")
+
+    # Validate phone_code: must be 1-4 digits with optional leading +
+    if not re.match(r"^\+?\d{1,4}$", phone_code):
+        raise HTTPException(status_code=422, detail="Invalid phone code. Must be 1-4 digits with optional leading +.")
+
     auth_service = AuthService(db)
     user, user_application, tokens, error = auth_service.otp_auth_verify(
         phone_code=phone_code,
@@ -216,7 +241,6 @@ async def verify_otp(
         application_id=application.id,
         otp=otp
     )
-    print(user,"============user")
     if error:
         raise HTTPException(status_code=400, detail=error)
     # Prepare user response
@@ -317,7 +341,6 @@ async def refresh_token(
     """
     Request a new access token via refresh token.
     """
-    print("============================referesh token")
     jwt_service = JWTService(db)
     payload = jwt_service.verify_token(data.refresh_token, token_type="refresh")
     if not payload:
@@ -325,10 +348,12 @@ async def refresh_token(
 
     user_id = int(payload.get("sub"))
     access_token = jwt_service.create_access_token(user_id=user_id)
+    # Issue a new refresh token (token rotation)
+    new_refresh_token = jwt_service.create_refresh_token(user_id=user_id)
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=data.refresh_token,
+        refresh_token=new_refresh_token,
         token_type="bearer",
     )
 

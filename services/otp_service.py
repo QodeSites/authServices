@@ -3,6 +3,7 @@ import os
 import re
 import logging
 import requests
+from fastapi import HTTPException
 
 from db.redis import get_redis_client
 from config.settings import settings
@@ -10,10 +11,25 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 TWO_FACTOR_API_KEY = settings.TWO_FACTOR_API_KEY
-OTP_EXPIRY_SECONDS = 300  # 5 minutes
-RATE_LIMIT_ATTEMPTS = 3  # (no longer used)
-RATE_LIMIT_WINDOW = 36000 # 1 hour (no longer used)
-PHONE_VERIFIED_EXPIRY = 600  # 10 minutes
+# Base URL for the 2Factor.in OTP gateway. Overridable via env so we don't
+# bake third-party hostnames into source. Strip any trailing slash so the
+# downstream f-strings remain consistent.
+TWO_FACTOR_API_URL = (settings.TWO_FACTOR_API_URL or "https://2factor.in/API/V1").rstrip("/")
+OTP_EXPIRY_SECONDS = 180  # 3 minutes
+RATE_LIMIT_ATTEMPTS = 3
+RATE_LIMIT_WINDOW = 3600  # 1 hour
+PHONE_VERIFIED_EXPIRY = 120  # 2 minutes
+
+# ── App-store reviewer bypass (Strategy B from LAUNCH_CHECKLIST.md §6) ──
+# Normalised once at import time: digits-only, no leading +. Module-scoped
+# so per-request work stays cheap. When unset (production after launch),
+# `_is_reviewer_phone` always returns False — fully off.
+_REVIEWER_PHONE = re.sub(r"\D", "", settings.REVIEWER_PHONE or "")
+_REVIEWER_OTP = (settings.REVIEWER_OTP or "").strip()
+
+def _is_reviewer_phone(phone: str) -> bool:
+    """True when both reviewer env vars are set AND the cleaned phone matches."""
+    return bool(_REVIEWER_PHONE) and bool(_REVIEWER_OTP) and phone == _REVIEWER_PHONE
 
 class OtpService:
     """
@@ -32,39 +48,65 @@ class OtpService:
         """
         Send an OTP to the user's phone.
         """
+        phone = self.cleaned_phone
+
+        # Reviewer bypass: skip 2Factor entirely + skip rate-limiting so the
+        # App Store / Play Store reviewer can hammer the OTP screen during
+        # the review run. Logged so we can audit how often it fires (should
+        # be ~zero outside review windows). Disable by clearing the env vars.
+        if _is_reviewer_phone(phone):
+            logger.warning(f"[OTP Service] REVIEWER BYPASS — send_otp for {phone[:4]}***")
+            self.redis.setex(
+                f"otp:session:{phone}", OTP_EXPIRY_SECONDS, "reviewer-bypass"
+            )
+            return {
+                "success": True,
+                "session_id": "reviewer-bypass",
+                "message": "OTP sent successfully",
+            }
+
         if not TWO_FACTOR_API_KEY:
             logger.error("[OTP Service] TWO_FACTOR_API_KEY not set in environment.")
             return {"success": False, "message": "Internal server error"}
 
-        phone = self.cleaned_phone
-        # Remove rate limiting
-        # rate_limit_key = f"otp:ratelimit:{phone}"
+        rate_limit_key = f"otp:ratelimit:{phone}"
 
         try:
-            # Removed rate limiting logic entirely
+            # Check rate limiting: max 3 OTP send attempts per phone per hour
+            attempts = self.redis.get(rate_limit_key)
+            if attempts is not None:
+                attempts = int(attempts)
+                if attempts >= RATE_LIMIT_ATTEMPTS:
+                    logger.warning(f"[OTP Service] Rate limit exceeded for {phone}")
+                    raise HTTPException(status_code=429, detail="Too many OTP requests. Try again in an hour.")
 
-            url = f"https://2factor.in/API/V1/{TWO_FACTOR_API_KEY}/SMS/{phone}/AUTOGEN"
+            # Increment rate limit counter with 3600s TTL
+            self.redis.incr(rate_limit_key)
+            self.redis.expire(rate_limit_key, RATE_LIMIT_WINDOW)
+
+            url = f"{TWO_FACTOR_API_URL}/{TWO_FACTOR_API_KEY}/SMS/{phone}/AUTOGEN"
             resp = requests.get(url, timeout=10)
             data = resp.json()
-            logger.info(f"[OTP Service] 2Factor response: {data}")
+            logger.info(f"[OTP Service] 2Factor response status received")
 
             if data.get("Status") == "Success" and data.get("Details"):
                 session_id = data["Details"]
                 self.redis.setex(f"otp:session:{phone}", OTP_EXPIRY_SECONDS, session_id)
-                # Removed updating attempts/rate limiting in Redis
-                logger.info(f"[OTP Service] OTP sent successfully to {phone}, session: {session_id}")
+                logger.info(f"[OTP Service] OTP sent successfully to phone")
                 return {
                     "success": True,
                     "session_id": session_id,
                     "message": "OTP sent successfully"
                 }
             else:
-                logger.error(f"[OTP Service] Failed to send OTP: {data}")
+                logger.error(f"[OTP Service] Failed to send OTP")
                 return {
                     "success": False,
                     "message": data.get("Details") or "Failed to send OTP"
                 }
 
+        except HTTPException:
+            raise
         except Exception as error:
             logger.error(f"[OTP Service] Error sending OTP: {str(error)}")
             return {
@@ -76,11 +118,38 @@ class OtpService:
         """
         Verify user-submitted OTP.
         """
+        phone = self.cleaned_phone
+
+        # Reviewer bypass — match the static OTP, mark the phone verified.
+        # Same constant-time-ish compare style as the live path uses (string
+        # equality is fine here; the OTP is non-secret to the reviewer).
+        if _is_reviewer_phone(phone):
+            if (otp or "").strip() == _REVIEWER_OTP:
+                logger.warning(
+                    f"[OTP Service] REVIEWER BYPASS — verify_otp OK for {phone[:4]}***"
+                )
+                self.redis.setex(
+                    f"phone:verified:{phone}", PHONE_VERIFIED_EXPIRY, "true"
+                )
+                self.redis.delete(f"otp:session:{phone}")
+                return {
+                    "success": True,
+                    "verified": True,
+                    "message": "Phone number verified successfully",
+                }
+            logger.warning(
+                f"[OTP Service] REVIEWER BYPASS — wrong static OTP for {phone[:4]}***"
+            )
+            return {
+                "success": False,
+                "verified": False,
+                "message": "Invalid OTP. Please try again.",
+            }
+
         if not TWO_FACTOR_API_KEY:
             logger.error("[OTP Service] TWO_FACTOR_API_KEY not set in environment.")
             return {"success": False, "verified": False, "message": "Internal server error"}
 
-        phone = self.cleaned_phone
         session_id = self.redis.get(f"otp:session:{phone}")
         if not session_id:
             logger.warning(f"[OTP Service] No OTP session found for {phone}")
@@ -90,7 +159,7 @@ class OtpService:
                 "message": "OTP expired or invalid. Please request a new OTP."
             }
         try:
-            url = f"https://2factor.in/API/V1/{TWO_FACTOR_API_KEY}/SMS/VERIFY/{session_id}/{otp}"
+            url = f"{TWO_FACTOR_API_URL}/{TWO_FACTOR_API_KEY}/SMS/VERIFY/{session_id}/{otp}"
             resp = requests.get(url, timeout=10)
             data = resp.json()
             logger.info(f"[OTP Service] 2Factor verify response: {data}")
@@ -98,7 +167,10 @@ class OtpService:
             if data.get("Status") == "Success" and data.get("Details") == "OTP Matched":
                 self.redis.setex(f"phone:verified:{phone}", PHONE_VERIFIED_EXPIRY, "true")
                 self.redis.delete(f"otp:session:{phone}")
-                logger.info(f"[OTP Service] OTP verified successfully for {phone}")
+                # Clear rate limit key after successful OTP verification
+                rate_limit_key = f"otp:ratelimit:{phone}"
+                self.redis.delete(rate_limit_key)
+                logger.info(f"[OTP Service] OTP verified successfully")
                 return {
                     "success": True,
                     "verified": True,

@@ -1,7 +1,10 @@
 from typing import Dict
 from sqlalchemy.orm import Session
+import logging
 
 from models.models import Application, User, UserApplication
+
+logger = logging.getLogger(__name__)
 
 class UserService:
 
@@ -14,8 +17,6 @@ class UserService:
         Updates the user profile for the specified application.
         Returns: (User, Application, message)
         """
-        print(data,"==========data")
-
         # 1. Validate and fetch application
         application = self.db.query(Application).filter(
             Application.id == application_id,
@@ -33,7 +34,6 @@ class UserService:
             value = data.get(field)
             if value is not None:
                 filters.append(getattr(User, field) == value)
-        print(filters, "==========filters")
 
         if filters:
             # Try to find a user with ANY identifier (OR), not AND

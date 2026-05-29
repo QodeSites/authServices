@@ -2,6 +2,7 @@
 
 import redis
 import logging
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -13,18 +14,18 @@ def startup():
     """Initialize Redis connection on app startup"""
     global _redis_client
     try:
-        _redis_client = redis.Redis(
-            host='localhost',  # Docker exposes to localhost
-            port=6379,
-            db=0,
+        # Parse Redis URL if available, otherwise use host/port from settings
+        redis_url = settings.REDIS_URL
+        _redis_client = redis.from_url(
+            redis_url,
             decode_responses=True,
             socket_connect_timeout=5,
             socket_timeout=5,
         )
         _redis_client.ping()
-        logger.info("✅ Redis connected successfully")
+        logger.info("Redis connected successfully")
     except redis.exceptions.ConnectionError as e:
-        logger.warning(f"⚠️ Redis connection failed: {e}. Caching will be disabled.")
+        logger.warning(f"Redis connection failed: {e}. Caching will be disabled.")
         _redis_client = None
 
 

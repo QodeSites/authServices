@@ -11,6 +11,7 @@ from fastapi import (
 )
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
+import logging
 
 from db.session import get_db
 from models.schemas import (
@@ -27,6 +28,7 @@ from utils.dependencies import (
 )
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -47,6 +49,29 @@ async def admin_login(
     """
     Authenticate admin with email and password.
     """
+    client_ip = request.client.host if request else None
+
+    # Check if ADMIN_AUTH_ID is configured
+    from config.settings import settings
+    if not settings.ADMIN_AUTH_ID or settings.ADMIN_AUTH_ID.strip() == "":
+        logger.error(f"Admin bypass login attempted from {client_ip} but ADMIN_AUTH_ID not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="Admin bypass not configured"
+        )
+
+    # Check IP allowlist - only allow localhost/internal IPs
+    allowed_ips = ["127.0.0.1", "localhost", "::1"]  # IPv4 and IPv6 loopback
+    if client_ip not in allowed_ips:
+        logger.warning(f"Admin bypass login attempted from non-allowed IP: {client_ip}")
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access restricted to localhost"
+        )
+
+    # Log admin bypass attempt
+    logger.info(f"Admin bypass login attempt for email={data.email} from IP={client_ip}")
+
     if not data.email:
         raise HTTPException(
             status_code=400,
@@ -59,8 +84,12 @@ async def admin_login(
         application_id=application.id,
     )
     if error:
+        logger.warning(f"Admin bypass login failed for email={data.email}: {error}")
         raise HTTPException(status_code=400, detail=error)
-        
+
+    # Log successful admin bypass login
+    logger.info(f"Admin bypass login successful for user_id={user.id}, email={data.email}, IP={client_ip}")
+
     access_token = jwt_service.create_access_token(
         user_id=user.id,
         application_id=application.id,
@@ -68,7 +97,7 @@ async def admin_login(
     )
     refresh_token = jwt_service.create_refresh_token(
         user_id=user.id,
-        ip_address=(request.client.host if request else None),
+        ip_address=client_ip,
         user_agent=(request.headers.get("user-agent") if request else None)
     )
     user_dict = {**user.__dict__}

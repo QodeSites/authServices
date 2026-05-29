@@ -11,8 +11,11 @@ from fastapi import (
 )
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
+import logging
 
 from db.session import get_db
+
+logger = logging.getLogger(__name__)
 from models.schemas import (
     ResponseModel,
     UserRegisterRequest,
@@ -45,11 +48,6 @@ router = APIRouter()
 @router.post(
     "/update/",
     response_model=ResponseModel,
-    summary="Register a new user"
-)
-@router.post(
-    "/update/",
-    response_model=ResponseModel,
     summary="Update user profile"
 )
 async def update_profile(
@@ -58,14 +56,12 @@ async def update_profile(
     application=Depends(verify_application)
 ):
     """
-    Update user
+    Update user profile
     """
     data_dict = data.model_dump()
-    print(data_dict, "==========data")
 
     user_service = UserService(db)
     user, user_application, error = user_service.update_profile(data_dict, application.id)
-    print(user, "============user")
     if error:
         raise HTTPException(status_code=400, detail=error)
 

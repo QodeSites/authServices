@@ -1,13 +1,16 @@
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
+import logging
 
 from db.session import get_db
 from services.jwt_service import JWTService
 from services.auth_service import AuthService
 from models.models import User, Application
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 security = HTTPBearer()
 
 
@@ -75,48 +78,19 @@ async def verify_admin(
     
 async def verify_application(
     x_client_id: Optional[str] = Header(None, alias="x-client-id"),
+    request: Request = None,
     db: Session = Depends(get_db)
 ) -> Application:
     """
     Dependency to verify application credentials from headers.
 
-    Accepts x-client-id header with any casing or client spelling.
+    Accepts x-client-id header with case-insensitive lookup.
     """
-    # Try various common header names if not found
-    header_names = [
-        "x-client-id", "X-Client-Id", "X-CLIENT-ID",
-        "X_CLIENT_ID", "x_client_id", "X-Client-ID", "x_clientid", "client_id"
-    ]
-    print(x_client_id,"===============================x_client_id")
     client_id = x_client_id
 
-    if not client_id:
-        # Try to extract from lowercased/misc spellings
-        from fastapi import Request
-        import inspect
-
-        current_frame = inspect.currentframe()
-        caller = None
-        try:
-            for frame_info in inspect.stack():
-                local_vars = frame_info.frame.f_locals
-                if "request" in local_vars:
-                    caller = local_vars["request"]
-                    break
-            if caller and isinstance(caller, Request):
-                req_headers = caller.headers
-            else:
-                req_headers = None
-        except Exception:
-            req_headers = None
-
-        if req_headers:
-            # Now check all possible spelling/casings
-            for h in header_names:
-                value = req_headers.get(h)
-                if value:
-                    client_id = value
-                    break
+    # Fallback to request headers with case-insensitive lookup if not found
+    if not client_id and request:
+        client_id = request.headers.get("x-client-id") or request.headers.get("X-Client-Id")
 
     if not client_id:
         raise HTTPException(

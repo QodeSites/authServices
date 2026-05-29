@@ -1,6 +1,7 @@
 from typing import Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
+import logging
 
 from models.models import (
     User, Application, Service, UserApplication,
@@ -10,6 +11,8 @@ from models.models import (
 from services.password_service import PasswordService
 from services.jwt_service import JWTService
 from services.otp_service import OtpService
+
+logger = logging.getLogger(__name__)
 
 class AuthService:
     """Handles authentication logic and user verification"""
@@ -38,14 +41,11 @@ class AuthService:
             ).first()
             if not application:
                 return None, None, "Application not found or inactive"
-            print(phonenumber,phone_code,application_id)
-            print(application.id,"======got apploicaton id")
-            
+
             # 2. Try to find a user with this phone number
             user = self.db.query(User).filter(
                 User.phonenumber == phonenumber
             ).first()
-            print(user,"===============user")
 
             is_new_user = False
 
@@ -59,12 +59,7 @@ class AuthService:
                 )
                 self.db.add(user)
                 self.db.flush()
-                print("=====in")
                 is_new_user = True
-            user_check = self.db.query(User).filter(
-                User.phonenumber == phonenumber
-            ).first()
-            print(user_check,"==============")
             # 3. See if user is registered for the application
             user_application = self.db.query(UserApplication).filter(
                 UserApplication.user_id == user.id,
@@ -125,7 +120,6 @@ class AuthService:
         If valid, returns (User, UserApplication, tokens_dict, error_message)
         """
         try:
-            print(phone_code,phonenumber,otp,"=======")
             # 1. Check application exists
             application = self.db.query(Application).filter(
                 Application.id == application_id,
@@ -140,7 +134,6 @@ class AuthService:
                 User.phonenumber == phonenumber,
                 User.is_active == True
             ).first()
-            print(user,"=========user")
             if not user:
                 return None, None, None, "User/phone number not found"
 
@@ -157,7 +150,6 @@ class AuthService:
             otp_valid = otp_obj.verify_otp(
                 otp=otp
             )
-            print(otp_valid)
             success = getattr(otp_valid, "success", otp_valid.get("success") if isinstance(otp_valid, dict) else None)
             message = getattr(otp_valid, "message", otp_valid.get("message") if isinstance(otp_valid, dict) else None)
             if not success:
@@ -183,7 +175,6 @@ class AuthService:
                 "refresh_token": refresh_token,
                 "token_type": "bearer"
             }
-            print(user,"=====inuser")
 
             return user, user_application, tokens, None
 
