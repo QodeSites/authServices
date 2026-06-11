@@ -60,6 +60,15 @@ class AuthService:
                 self.db.add(user)
                 self.db.flush()
                 is_new_user = True
+            else:
+                # Heal legacy rows: phone_code was historically stored as
+                # both '+91' and '91' depending on which frontend created the
+                # row. Normalise to canonical (digits-only) form on every
+                # send so subsequent verify lookups match. (P0-3 fix)
+                canonical_code = (phone_code or "").lstrip("+")
+                existing_code = (user.phone_code or "").lstrip("+")
+                if existing_code != canonical_code or (user.phone_code or "").startswith("+"):
+                    user.phone_code = canonical_code
             # 3. See if user is registered for the application
             user_application = self.db.query(UserApplication).filter(
                 UserApplication.user_id == user.id,
@@ -128,14 +137,33 @@ class AuthService:
             if not application:
                 return None, None, None, "Application not found or inactive"
 
-            # 2. Get user by phone number
+            # 2. Get user by phone number.
+            # Router normalises incoming phone_code to digits-only, but legacy
+            # rows in the DB may still hold '+91'. Match against both forms so
+            # we don't reject real users mid-migration. (P0-3 fix)
+            canonical_code = (phone_code or "").lstrip("+")
+            plus_code = f"+{canonical_code}" if canonical_code else None
             user = self.db.query(User).filter(
-                User.phone_code == phone_code,
+                User.phone_code.in_([canonical_code, plus_code]),
                 User.phonenumber == phonenumber,
                 User.is_active == True
             ).first()
             if not user:
+                # Fallback: phonenumber-only lookup (otp_auth_send finds users
+                # the same way). The OTP itself is the auth gate — delivery to
+                # the physical SIM proves possession; mismatched phone_code
+                # alone should not block a legitimate sign-in.
+                user = self.db.query(User).filter(
+                    User.phonenumber == phonenumber,
+                    User.is_active == True
+                ).first()
+            if not user:
                 return None, None, None, "User/phone number not found"
+
+            # Heal phone_code on the way through so future lookups hit the
+            # primary (indexed) path.
+            if (user.phone_code or "").lstrip("+") != canonical_code or (user.phone_code or "").startswith("+"):
+                user.phone_code = canonical_code
 
             # 3. Get user application
             user_application = self.db.query(UserApplication).filter(

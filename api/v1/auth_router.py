@@ -45,6 +45,17 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 router = APIRouter()
 
 
+def _normalize_phone_code(phone_code: str) -> str:
+    """Canonicalise phone_code: strip whitespace and any leading '+'.
+
+    Historically rows have been written with both '+91' and '91' depending on
+    which frontend created them, which broke exact-match lookups in
+    otp_auth_verify (P0-3). Single canonical form going forward is the
+    digits-only string.
+    """
+    return (phone_code or "").strip().lstrip("+")
+
+
 @router.post(
     "/register/",
     response_model=ResponseModel,
@@ -190,6 +201,9 @@ async def send_otp(
     if not re.match(r"^\+?\d{1,4}$", phone_code):
         raise HTTPException(status_code=422, detail="Invalid phone code. Must be 1-4 digits with optional leading +.")
 
+    # Canonicalise — see _normalize_phone_code docstring (P0-3 fix).
+    phone_code = _normalize_phone_code(phone_code)
+
     auth_service = AuthService(db)
     user, user_application, error = auth_service.otp_auth_send(
         phone_code=phone_code,
@@ -233,6 +247,9 @@ async def verify_otp(
     # Validate phone_code: must be 1-4 digits with optional leading +
     if not re.match(r"^\+?\d{1,4}$", phone_code):
         raise HTTPException(status_code=422, detail="Invalid phone code. Must be 1-4 digits with optional leading +.")
+
+    # Canonicalise — see _normalize_phone_code docstring (P0-3 fix).
+    phone_code = _normalize_phone_code(phone_code)
 
     auth_service = AuthService(db)
     user, user_application, tokens, error = auth_service.otp_auth_verify(
